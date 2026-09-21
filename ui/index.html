@@ -166,7 +166,12 @@
                             </div>
 
                             <div id="predefined-voice-options" class="form-group">
-                                <label for="predefined-voice-select" class="form-label">Select Predefined Voice:</label>
+                                <label for="voice-search" class="form-label">Find a voice</label>
+<input id="voice-search" class="form-input" placeholder="Search names, e.g. Emma">
+<label for="voice-language-filter" class="form-label">Reference recording language</label>
+<select id="voice-language-filter" class="form-select"><option value="all">All voices</option><option value="en">English (catalogued)</option><option value="unknown">Not catalogued</option></select>
+<p class="form-hint">Voices are shared across models. For Swedish speech choose Multilingual and Swedish as the output language. A voice name does not identify its accent.</p>
+<label for="predefined-voice-select" class="form-label">Choose a saved voice:</label>
                                 <div class="flex-row items-center gap-2">
                                     <select id="predefined-voice-select" name="predefined_voice_select"
                                         class="form-select" style="flex-grow: 1;">
@@ -175,7 +180,7 @@
                                     <input type="file" id="predefined-voice-file-input" class="hidden" multiple
                                         accept=".wav,.mp3" aria-label="Upload predefined voice file">
                                     <button type="button" id="predefined-voice-import-button" class="btn-icon-stack"
-                                        title="Import new predefined voice files">
+                                        title="Add a voice from a WAV or MP3 recording">
                                         <svg class="btn-icon-stack__icon" xmlns="http://www.w3.org/2000/svg"
                                             viewBox="0 0 20 20" fill="currentColor">
                                             <path
@@ -183,7 +188,7 @@
                                             <path
                                                 d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
                                         </svg>
-                                        Import
+                                        Add voice
                                     </button>
                                     <button type="button" id="predefined-voice-refresh-button" class="btn-icon-stack"
                                         title="Refresh predefined voice list">
@@ -219,7 +224,7 @@
                                             <path
                                                 d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
                                         </svg>
-                                        Import
+                                        Add voice
                                     </button>
                                     <button type="button" id="clone-refresh-button" class="btn-icon-stack"
                                         title="Refresh reference file list">
@@ -558,7 +563,20 @@
         </div>
     </div>
 
-    <script src="script.js" defer></script>
+    <dialog id="add-voice-dialog" style="max-width:540px;width:90%;padding:24px;border-radius:12px">
+<form id="add-voice-form">
+<h2>Add a voice</h2>
+<p>Upload a reference recording—not a model. Use one speaker, ideally 10–20 seconds, without music or background noise.</p>
+<label for="new-voice-name">Voice name</label><input id="new-voice-name" class="form-input" required maxlength="60" placeholder="e.g. Anna Swedish">
+<label for="new-voice-audio">Recording (WAV or MP3, up to 25 MB)</label><input id="new-voice-audio" type="file" accept=".wav,.mp3" required>
+<audio id="new-voice-listen" controls style="width:100%;margin:12px 0"></audio>
+<label><input id="new-voice-permission" type="checkbox" required> I have permission to use this recording for voice cloning.</label>
+<p class="form-hint">The saved name is shared by Turbo and Multilingual. Language/accent metadata is not saved by this form yet; use a descriptive name when known.</p>
+<p id="new-voice-status" role="status"></p>
+<button type="submit" class="btn primary" id="new-voice-save">Save voice</button>
+<button type="button" class="btn" id="new-voice-cancel">Cancel</button>
+</form></dialog>
+<script src="script.js?v=simple-voices-2" defer></script>
 </body>
 
 </html>

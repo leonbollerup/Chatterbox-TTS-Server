@@ -770,7 +770,67 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     // --- Dynamic UI Population ---
+    document.getElementById('voice-search').addEventListener('input', () => populatePredefinedVoices(latestVoiceFilterData || initialPredefinedVoices));
+    const voiceDialog = document.getElementById('add-voice-dialog');
+    const voiceFile = document.getElementById('new-voice-audio');
+    let voiceObjectURL = null;
+    voiceFile.addEventListener('change', () => {
+        if (voiceObjectURL) URL.revokeObjectURL(voiceObjectURL);
+        voiceObjectURL = voiceFile.files[0] ? URL.createObjectURL(voiceFile.files[0]) : null;
+        document.getElementById('new-voice-listen').src = voiceObjectURL || '';
+    });
+    document.getElementById('new-voice-cancel').addEventListener('click', () => {
+        document.getElementById('new-voice-listen').pause(); voiceDialog.close();
+    });
+    document.getElementById('add-voice-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const status = document.getElementById('new-voice-status');
+        const button = document.getElementById('new-voice-save');
+        button.disabled = true;
+        try {
+            const file = voiceFile.files[0];
+            if (!file || file.size > 25 * 1024 * 1024) throw new Error('Choose a recording smaller than 25 MB.');
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (!['wav','mp3'].includes(ext)) throw new Error('Choose a WAV or MP3 recording.');
+            const name = document.getElementById('new-voice-name').value.trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+            if (!name) throw new Error('Use letters or numbers in the name.');
+            const filename = name + '.' + ext;
+            const existing = await fetch(`${API_BASE_URL}/get_predefined_voices`);
+            if (!existing.ok) throw new Error('Could not check existing voices. Try again.');
+            const voices = await existing.json();
+            if (voices.some(v => v.filename.toLowerCase() === filename.toLowerCase())) throw new Error('That name already exists. Choose a different name.');
+            status.textContent = 'Uploading recording…';
+            const data = new FormData(); data.append('files', file, filename);
+            const response = await fetch(`${API_BASE_URL}/upload_predefined_voice`, {method:'POST', body:data});
+            const result = await response.json();
+            if (!response.ok || result.errors?.length) throw new Error(result.errors?.map(e => e.error).join('; ') || 'Upload failed.');
+            initialPredefinedVoices = result.all_predefined_voices || [];
+            document.getElementById('voice-language-filter').value = 'all';
+            document.getElementById('voice-search').value = '';
+            populatePredefinedVoices();
+            predefinedVoiceSelect.value = result.uploaded_files[0];
+            predefinedVoiceSelect.dispatchEvent(new Event('change', {bubbles:true}));
+            document.getElementById('new-voice-listen').pause();
+            status.textContent = 'Saved. Your voice is selected.';
+            voiceDialog.close(); event.target.reset();
+        } catch (error) { status.textContent = error.message; }
+        finally { button.disabled = false; }
+    });
+    let latestVoiceFilterData = null;
+    const voiceLanguageFilter = document.getElementById('voice-language-filter');
+    if (voiceLanguageFilter) voiceLanguageFilter.addEventListener('change', () => {
+        populatePredefinedVoices(latestVoiceFilterData || initialPredefinedVoices);
+        predefinedVoiceSelect.dispatchEvent(new Event('change', {bubbles: true}));
+    });
     function populatePredefinedVoices(voicesData = initialPredefinedVoices) {
+        latestVoiceFilterData = voicesData;
+        const knownEnglish = new Set(['Amy.wav', 'Peter.wav', 'Emma.wav']);
+        const filter = voiceLanguageFilter ? voiceLanguageFilter.value : 'all';
+        voicesData = voicesData.filter(v => filter === 'all' ||
+            (filter === 'en' ? knownEnglish.has(v.filename) : !knownEnglish.has(v.filename)));
+
+        const query = document.getElementById('voice-search')?.value.trim().toLowerCase() || '';
+        voicesData = voicesData.filter(v => (v.display_name || v.filename).toLowerCase().includes(query));
         if (!predefinedVoiceSelect) return;
         const currentSelectedValue = predefinedVoiceSelect.value;
         predefinedVoiceSelect.innerHTML = '<option value="none">-- Select Voice --</option>';
@@ -1433,7 +1493,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     if (predefinedVoiceImportButton && predefinedVoiceFileInput) {
-        predefinedVoiceImportButton.addEventListener('click', () => predefinedVoiceFileInput.click());
+        predefinedVoiceImportButton.addEventListener('click', () => document.getElementById('add-voice-dialog').showModal());
         predefinedVoiceFileInput.addEventListener('change', () => handleFileUpload(predefinedVoiceFileInput, '/upload_predefined_voice', (result) => {
             initialPredefinedVoices = result.all_predefined_voices || [];
             populatePredefinedVoices();
