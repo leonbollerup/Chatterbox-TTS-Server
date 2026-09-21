@@ -1514,3 +1514,7 @@ You can find it here: [https://opensource.org/licenses/MIT](https://opensource.o
     *   [SoundFile](https://python-soundfile.readthedocs.io/) & [libsndfile](http://www.mega-nerd.com/libsndfile/)
     *   [Jinja2](https://jinja.palletsprojects.com/)
     *   [WaveSurfer.js](https://wavesurfer.xyz/)
+
+## Fork development notes
+
+See [Voice management changes, limitations and roadmap](docs/VOICE-MANAGEMENT.md) for this fork’s local enhancements and next-phase acceptance criteria.
