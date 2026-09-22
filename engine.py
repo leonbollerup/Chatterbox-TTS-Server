@@ -424,6 +424,25 @@ def load_model() -> bool:
         return False
 
 
+def _serialized_generation(fn):
+    """One active synthesis across local processes sharing this advisory lock."""
+    from functools import wraps
+    import threading
+    local_lock = threading.Lock()
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        import fcntl
+        with local_lock:
+            with open(os.environ.get("CHATTERBOX_GPU_LOCK", "/tmp/chatterbox-generation.lock"), "a") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    return wrapped
+
+
+@_serialized_generation
 def synthesize(
     text: str,
     audio_prompt_path: Optional[str] = None,

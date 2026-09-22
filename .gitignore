@@ -49,3 +49,11 @@ htmlcov/
 
 # Local-only scratch / notes (never committed)
 _local/
+
+# Local deployment state
+hf_cache/
+.venv-*/
+config.cpu.yaml
+config.multilingual.yaml
+chatterbox-web.cpu.service
+ui/backup-*/

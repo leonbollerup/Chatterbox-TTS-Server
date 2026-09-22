@@ -667,6 +667,177 @@ async def get_predefined_voices_api():
 
 
 # --- File Upload Endpoints ---
+@app.post("/api/voices/add", tags=["File Management"])
+def add_catalog_voice(
+    file: UploadFile = File(...), name: str = Form(...),
+    recording_language: str = Form(...), default_language: str = Form(...),
+    permission: bool = Form(False),
+):
+    """Publish a new recording and private sidecar; never replace existing voices."""
+    import json
+    import tempfile
+    languages = set(engine.SUPPORTED_LANGUAGES) | {"en"}
+    if recording_language not in languages | {"unknown"} or default_language not in languages:
+        raise HTTPException(400, "Unsupported language")
+    if not permission or not name.strip() or len(name.strip()) > 60:
+        raise HTTPException(400, "Voice name and recording permission required")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".wav", ".mp3"}:
+        raise HTTPException(400, "Choose WAV or MP3")
+    base = get_predefined_voices_path(ensure_absolute=True)
+    filename = "voice-" + uuid.uuid4().hex + suffix
+    target = base / filename
+    metadata = base / (filename + ".json")
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=base, suffix=suffix, prefix=".upload-", delete=False) as out:
+            temp = Path(out.name)
+            total = 0
+            while chunk := file.file.read(1024 * 1024):
+                total += len(chunk)
+                if total > 25 * 1024 * 1024:
+                    raise HTTPException(413, "Recording exceeds 25 MB")
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+        valid, message = utils.validate_reference_audio(temp, max_duration_sec=None)
+        if not valid:
+            raise HTTPException(400, message)
+        with metadata.open("x", encoding="utf-8") as out:
+            json.dump({"version": 1, "display_name": name.strip(),
+                       "recording_language": recording_language,
+                       "default_language": default_language}, out, ensure_ascii=False)
+            out.flush()
+            os.fsync(out.fileno())
+        # Atomic no-clobber publication after metadata is fully written.
+        os.link(temp, target)
+        return {"uploaded_files": [filename], "all_predefined_voices": utils.get_predefined_voices()}
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
+        file.file.close()
+
+
+class VoicePreset(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    temperature: float = Field(default=0.8, ge=0, le=1.5)
+    exaggeration: float = Field(default=0.5, ge=0, le=2)
+    cfg_weight: float = Field(default=0.5, ge=0, le=2)
+    speed_factor: float = Field(default=1, ge=0.25, le=4)
+    seed: int = Field(default=0, ge=0, le=2147483647)
+
+
+class VoiceEdit(BaseModel):
+    kind: Literal["predefined", "reference"]
+    filename: str
+    revision: str
+    display_name: str = Field(min_length=1, max_length=60)
+    recording_language: str
+    default_language: str
+    presets: List[VoicePreset] = Field(default_factory=list, max_length=20)
+    default_preset: str = ""
+
+
+def voice_metadata_path(kind, filename):
+    if kind not in {"predefined", "reference"} or not filename or "/" in filename or "\\" in filename or "\x00" in filename:
+        raise HTTPException(400, "Invalid voice")
+    base = (get_predefined_voices_path(ensure_absolute=True) if kind == "predefined" else get_reference_audio_path(ensure_absolute=True)).resolve()
+    audio = base / filename
+    if audio.is_symlink() or audio.suffix.lower() not in {".wav", ".mp3"} or not audio.is_file():
+        raise HTTPException(404, "Voice not found")
+    path = base / (filename + ".json")
+    if path.is_symlink():
+        raise HTTPException(400, "Invalid metadata path")
+    return path
+
+
+def read_voice_metadata(path):
+    import hashlib, json
+    raw = path.read_bytes() if path.exists() else b""
+    try:
+        data = json.loads(raw) if raw else {}
+        if not isinstance(data, dict):
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(409, "Existing metadata is invalid; repair before editing")
+    return data, hashlib.sha256(raw).hexdigest()
+
+
+@app.get("/api/voices/metadata", tags=["File Management"])
+async def get_voice_metadata(kind: str, filename: str):
+    data, revision = read_voice_metadata(voice_metadata_path(kind, filename))
+    return {"metadata": data, "revision": revision}
+
+
+@app.post("/api/voices/metadata", tags=["File Management"])
+async def edit_voice_metadata(payload: VoiceEdit, request: Request):
+    import json, tempfile
+    from urllib.parse import urlsplit
+    origin = request.headers.get("origin")
+    if request.headers.get("X-Voice-Management") != "1" or request.headers.get("sec-fetch-site") == "cross-site" or (origin and (origin == "null" or urlsplit(origin).netloc != request.headers.get("host"))):
+        raise HTTPException(403, "Same-origin voice management required")
+    languages = set(engine.SUPPORTED_LANGUAGES) | {"en"}
+    if payload.recording_language not in languages | {"unknown"} or payload.default_language not in languages | {""}:
+        raise HTTPException(400, "Unsupported language")
+    names = [p.name for p in payload.presets]
+    if not payload.display_name.strip() or any(not n.strip() for n in names) or len(set(names)) != len(names) or (payload.default_preset and payload.default_preset not in names):
+        raise HTTPException(400, "Invalid or duplicate preset names/default")
+    path = voice_metadata_path(payload.kind, payload.filename)
+    data, revision = read_voice_metadata(path)
+    if revision != payload.revision:
+        raise HTTPException(409, "Voice changed in another window. Reopen editor before saving.")
+    data.update(display_name=payload.display_name.strip(), recording_language=payload.recording_language, default_language=payload.default_language,
+                presets=[p.model_dump() for p in payload.presets], default_preset=payload.default_preset, version=1)
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=".metadata-", delete=False) as out:
+            temp = Path(out.name)
+            json.dump(data, out, ensure_ascii=False, allow_nan=False)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temp, path)
+        logger.info("Updated voice metadata: %s/%s", payload.kind, payload.filename)
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
+    return {"status": "saved"}
+
+
+class ArchiveVoiceRequest(BaseModel):
+    kind: Literal["predefined", "reference"]
+    filename: str
+
+
+@app.post("/api/voices/archive", tags=["File Management"])
+async def archive_voice(payload: ArchiveVoiceRequest, request: Request):
+    """Reversibly remove a recording from the shared catalog (trusted LAN only)."""
+    # Reject cross-site browser mutations; this is not an authentication layer.
+    from urllib.parse import urlsplit
+    origin = request.headers.get("origin")
+    if (request.headers.get("X-Voice-Management") != "1"
+            or request.headers.get("sec-fetch-site") == "cross-site"
+            or (origin and (origin == "null" or urlsplit(origin).netloc != request.headers.get("host")))):
+        raise HTTPException(status_code=403, detail="Same-origin voice management required")
+    name = payload.filename
+    if not name or name in {".", ".."} or "/" in name or "\\" in name or "\x00" in name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    base = (get_predefined_voices_path(ensure_absolute=True) if payload.kind == "predefined"
+            else get_reference_audio_path(ensure_absolute=True)).resolve()
+    source = base / name
+    if source.is_symlink() or source.suffix.lower() not in {".wav", ".mp3"}:
+        raise HTTPException(status_code=400, detail="Unsupported recording")
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="Recording not found")
+    archive = base / ".voice-archive"
+    if archive.is_symlink():
+        raise HTTPException(status_code=400, detail="Invalid archive directory")
+    archive.mkdir(mode=0o700, exist_ok=True)
+    destination = archive / (uuid.uuid4().hex + "--" + name)
+    source.rename(destination)
+    logger.info("Archived %s recording %r as %r", payload.kind, name, destination.name)
+    return {"status": "archived", "filename": name, "archive_name": destination.name}
+
+
 @app.post("/upload_reference", tags=["File Management"])
 async def upload_reference_audio_endpoint(files: List[UploadFile] = File(...)):
     """

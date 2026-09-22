@@ -1,0 +1,8 @@
+
+.workspace-tabs {display:flex;gap:.5rem;overflow-x:auto;margin-bottom:1.5rem;padding:.5rem 0}
+.workspace-tabs button {white-space:nowrap}
+.workspace-tabs [aria-selected="true"] {outline:2px solid currentColor;outline-offset:2px}
+.workspace-panel[hidden] {display:none!important}
+.workspace-panel {margin-bottom:2rem}
+.voice-row {display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 0;border-bottom:1px solid #8885}
+.workspace-status {white-space:pre-line;margin:1rem 0}

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # --- File Path Constants ---
 # Defines the primary configuration file name.
-CONFIG_FILE_PATH = Path("config.yaml")
+CONFIG_FILE_PATH = Path(os.environ.get("CHATTERBOX_CONFIG", "config.yaml"))
 
 # --- Default Directory Paths ---
 # These paths are used if not specified in config.yaml and are created if they don't exist

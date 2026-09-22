@@ -591,6 +591,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         loadInitialUiState();
         populatePredefinedVoices();
         populateReferenceFiles();
+        applyVoiceLanguage();
         populatePresets();
         displayServerConfiguration();
         if (languageSelectContainer && currentConfig?.ui?.show_language_select === false) {
@@ -689,7 +690,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (cfgWeightValueDisplay) cfgWeightValueDisplay.textContent = cfgWeightSlider.value;
         if (speedFactorSlider) speedFactorSlider.value = genDefaults.speed_factor !== undefined ? genDefaults.speed_factor : 1.0;
         if (speedFactorValueDisplay) speedFactorValueDisplay.textContent = speedFactorSlider.value;
-        if (languageSelect) languageSelect.value = genDefaults.language || 'en';
+        if (languageSelect) languageSelect.value = currentModelInfo?.type === 'multilingual' ? (genDefaults.language || 'en') : 'en';
         if (outputFormatSelect) outputFormatSelect.value = currentConfig?.audio_output?.format || 'mp3';
 
         if (hideChunkWarningCheckbox) hideChunkWarningCheckbox.checked = hideChunkWarning;
@@ -770,7 +771,93 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     // --- Dynamic UI Population ---
+    document.getElementById('voice-search').addEventListener('input', () => populatePredefinedVoices(latestVoiceFilterData || initialPredefinedVoices));
+    const voiceDialog = document.getElementById('add-voice-dialog');
+    const voiceFile = document.getElementById('new-voice-audio');
+    for (const id of ['new-voice-recording-language', 'new-voice-default-language']) {
+        const select = document.getElementById(id);
+        for (const language of LANGUAGES_MULTILINGUAL) select.add(new Option(language.name, language.code));
+        select.value = 'en';
+        [...select.options].find(o => o.value === 'en').defaultSelected = true;
+    }
+    function applyVoiceLanguage() {
+        const voice = initialPredefinedVoices.find(v => v.filename === predefinedVoiceSelect.value);
+        if (currentVoiceMode !== 'predefined') return;
+        if (!voice?.default_language) {
+            if (currentModelInfo?.type !== 'multilingual') languageSelect.value = 'en';
+            return;
+        }
+        lastMultilingualLanguage = voice.default_language;
+        if (![...languageSelect.options].some(o => o.value === voice.default_language)) {
+            languageSelect.add(new Option(voice.default_language, voice.default_language));
+        }
+        languageSelect.value = voice.default_language;
+        languageSelectContainer.classList.remove('hidden');
+        if (voice.default_language !== 'en' && currentModelInfo?.type !== 'multilingual') {
+            showNotification('This voice defaults to non-English speech. Select Multilingual and apply the model change before generating.', 'warning');
+        }
+        debouncedSaveState();
+    }
+    predefinedVoiceSelect.addEventListener('change', applyVoiceLanguage);
+    let voiceObjectURL = null;
+    voiceFile.addEventListener('change', () => {
+        if (voiceObjectURL) URL.revokeObjectURL(voiceObjectURL);
+        voiceObjectURL = voiceFile.files[0] ? URL.createObjectURL(voiceFile.files[0]) : null;
+        document.getElementById('new-voice-listen').src = voiceObjectURL || '';
+    });
+    document.getElementById('new-voice-cancel').addEventListener('click', () => {
+        document.getElementById('new-voice-listen').pause(); document.getElementById('add-voice-form').reset();
+    });
+    document.getElementById('add-voice-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const status = document.getElementById('new-voice-status');
+        const button = document.getElementById('new-voice-save');
+        button.disabled = true;
+        try {
+            const file = voiceFile.files[0];
+            if (!file || file.size > 25 * 1024 * 1024) throw new Error('Choose a recording smaller than 25 MB.');
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (!['wav','mp3'].includes(ext)) throw new Error('Choose a WAV or MP3 recording.');
+            const name = document.getElementById('new-voice-name').value.trim();
+            if (!name) throw new Error('Use letters or numbers in the name.');
+            status.textContent = 'Uploading recording…';
+            const data = new FormData(); data.append('file', file);
+            data.append('name', name);
+            data.append('recording_language', document.getElementById('new-voice-recording-language').value);
+            data.append('default_language', document.getElementById('new-voice-default-language').value);
+            data.append('permission', String(document.getElementById('new-voice-permission').checked));
+            const response = await fetch(`${API_BASE_URL}/api/voices/add`, {method:'POST', body:data});
+            const result = await response.json();
+            if (!response.ok || result.errors?.length) throw new Error(result.errors?.map(e => e.error).join('; ') || result.detail || 'Upload failed.');
+            initialPredefinedVoices = result.all_predefined_voices || [];
+            document.getElementById('voice-language-filter').value = 'all';
+            document.getElementById('voice-search').value = '';
+            populatePredefinedVoices();
+            const mode = document.querySelector('input[name="voice_mode"][value="predefined"]');
+            mode.checked = true; mode.dispatchEvent(new Event('change', {bubbles:true}));
+            predefinedVoiceSelect.value = result.uploaded_files[0];
+            predefinedVoiceSelect.dispatchEvent(new Event('change', {bubbles:true}));
+            document.getElementById('new-voice-listen').pause();
+            status.textContent = 'Saved. Your voice is selected.';
+            event.target.reset();
+        } catch (error) { status.textContent = error.message; }
+        finally { button.disabled = false; }
+    });
+    let latestVoiceFilterData = null;
+    const voiceLanguageFilter = document.getElementById('voice-language-filter');
+    if (voiceLanguageFilter) voiceLanguageFilter.addEventListener('change', () => {
+        populatePredefinedVoices(latestVoiceFilterData || initialPredefinedVoices);
+        predefinedVoiceSelect.dispatchEvent(new Event('change', {bubbles: true}));
+    });
     function populatePredefinedVoices(voicesData = initialPredefinedVoices) {
+        latestVoiceFilterData = voicesData;
+        const knownEnglish = new Set(['Amy.wav', 'Peter.wav', 'Emma.wav']);
+        const filter = voiceLanguageFilter ? voiceLanguageFilter.value : 'all';
+        voicesData = voicesData.filter(v => filter === 'all' ||
+            (filter === 'en' ? (v.recording_language === 'en' || (!v.recording_language && knownEnglish.has(v.filename))) : (!v.recording_language && !knownEnglish.has(v.filename))));
+
+        const query = document.getElementById('voice-search')?.value.trim().toLowerCase() || '';
+        voicesData = voicesData.filter(v => (v.display_name || v.filename).toLowerCase().includes(query));
         if (!predefinedVoiceSelect) return;
         const currentSelectedValue = predefinedVoiceSelect.value;
         predefinedVoiceSelect.innerHTML = '<option value="none">-- Select Voice --</option>';
@@ -1080,6 +1167,12 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     async function submitTTSRequest() {
+        // An empty select value is not a non-English language.
+        if (!languageSelect.value) languageSelect.value = 'en';
+        if (languageSelect.value !== 'en' && currentModelInfo?.type !== 'multilingual') {
+            showNotification('Select Multilingual and apply the model change before generating non-English speech.', 'error');
+            return;
+        }
         isGenerating = true;
         showLoadingOverlay();
         const startTime = performance.now();
@@ -1433,7 +1526,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     if (predefinedVoiceImportButton && predefinedVoiceFileInput) {
-        predefinedVoiceImportButton.addEventListener('click', () => predefinedVoiceFileInput.click());
+        predefinedVoiceImportButton.addEventListener('click', () => document.getElementById('tab-add').click());
         predefinedVoiceFileInput.addEventListener('change', () => handleFileUpload(predefinedVoiceFileInput, '/upload_predefined_voice', (result) => {
             initialPredefinedVoices = result.all_predefined_voices || [];
             populatePredefinedVoices();
