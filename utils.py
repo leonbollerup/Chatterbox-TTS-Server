@@ -1201,7 +1201,18 @@ def get_predefined_voices() -> List[Dict[str, str]]:
             exc_info=True,
         )
         predefined_voice_list = []
-    return predefined_voice_list
+    import json
+    for voice in predefined_voice_list:
+        sidecar = voices_dir_path / (voice["filename"] + ".json")
+        if sidecar.is_file() and not sidecar.is_symlink():
+            try:
+                metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+                for key in ("display_name", "recording_language", "default_language"):
+                    if isinstance(metadata.get(key), str):
+                        voice[key] = metadata[key]
+            except (ValueError, OSError):
+                logger.warning("Unable to read voice metadata for %s", voice["filename"])
+    return sorted(predefined_voice_list, key=lambda v: v["display_name"].lower())
 
 
 def validate_reference_audio(

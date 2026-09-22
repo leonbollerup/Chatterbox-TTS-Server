@@ -1,0 +1,16 @@
+[Unit]
+Description=Chatterbox Multilingual backend
+After=network-online.target
+[Service]
+WorkingDirectory=/opt/chatterbox-web
+ExecStart=/opt/chatterbox-web/.venv/bin/python server.py
+Environment=CHATTERBOX_CONFIG=config.multilingual.yaml
+Environment=HF_HOME=/opt/chatterbox-web/hf_cache
+Environment=HF_HUB_DISABLE_XET=1
+Environment=OMP_NUM_THREADS=4
+Environment=MKL_NUM_THREADS=4
+Environment=CUDA_VISIBLE_DEVICES=GPU-51160f1f-49f2-b1ff-736b-80d9d16e4d2d
+Restart=on-failure
+RestartSec=15
+[Install]
+WantedBy=multi-user.target

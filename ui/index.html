@@ -7,6 +7,7 @@
     <title>Chatterbox TTS Server</title>
     <link rel="stylesheet" href="styles.css">
     <script src="vendor/wavesurfer.min.js"></script>
+<link rel="stylesheet" href="/ui/tabs.css?v=1">
 </head>
 
 <body>
@@ -568,15 +569,19 @@
 <h2>Add a voice</h2>
 <p>Upload a reference recording—not a model. Use one speaker, ideally 10–20 seconds, without music or background noise.</p>
 <label for="new-voice-name">Voice name</label><input id="new-voice-name" class="form-input" required maxlength="60" placeholder="e.g. Anna Swedish">
+<label for="new-voice-recording-language">Recording language</label><select id="new-voice-recording-language" class="form-select" required></select>
+<label for="new-voice-default-language">Default speech language</label><select id="new-voice-default-language" class="form-select" required></select>
 <label for="new-voice-audio">Recording (WAV or MP3, up to 25 MB)</label><input id="new-voice-audio" type="file" accept=".wav,.mp3" required>
 <audio id="new-voice-listen" controls style="width:100%;margin:12px 0"></audio>
 <label><input id="new-voice-permission" type="checkbox" required> I have permission to use this recording for voice cloning.</label>
-<p class="form-hint">The saved name is shared by Turbo and Multilingual. Language/accent metadata is not saved by this form yet; use a descriptive name when known.</p>
+<p class="form-hint">Languages are saved with the voice. Non-English speech requires the Multilingual model.</p>
 <p id="new-voice-status" role="status"></p>
 <button type="submit" class="btn primary" id="new-voice-save">Save voice</button>
 <button type="button" class="btn" id="new-voice-cancel">Cancel</button>
 </form></dialog>
-<script src="script.js?v=simple-voices-2" defer></script>
+<script src="script.js?v=language-fix-2" defer></script>
+<script src="/ui/tabs.js?v=voice-edit-1" defer></script>
+<script src="/ui/voice-editor.js?v=1" defer></script>
 </body>
 
 </html>
